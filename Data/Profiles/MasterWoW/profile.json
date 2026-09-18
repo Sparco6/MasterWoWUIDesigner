@@ -1,0 +1,15 @@
+{
+  "name": "MasterWoW TBC 2.4.3",
+  "baseVersion": "2.4.3",
+  "build": 8606,
+  "executionContext": "AutoDetect",
+  "referenceInterfaceIsReadOnly": true,
+  "loadOrder": [
+    "CoreTbcGlobals",
+    "ScannedFrameXmlTemplates",
+    "Compat.lua",
+    "CustomClientExtensions",
+    "Target"
+  ],
+  "prototypeMode": "ClrCompatibilityAdapter"
+}

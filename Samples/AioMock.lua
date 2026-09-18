@@ -1,0 +1,6 @@
+AIO.AddAddon()
+local handlers = AIO.AddHandlers("StudioSample", {})
+local frame = CreateFrame("Frame", "AioMockFrame", UIParent)
+frame:SetSize(300, 140)
+frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+AIO.Handle("StudioSample", "RequestPreviewData")

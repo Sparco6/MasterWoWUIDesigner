@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "refreshedAt": "2026-08-26T07:30:00+02:00",
+  "sources": [
+    {"key":"InterfaceCustomizationPortal","url":"https://wowwiki-archive.fandom.com/wiki/Portal:Interface_customization","status":"Reachable","checkedAt":"2026-08-26T07:30:00+02:00","error":null,"importedEntries":0},
+    {"key":"GlobalApi","url":"https://wowwiki-archive.fandom.com/wiki/World_of_Warcraft_API","status":"Unavailable","checkedAt":"2026-08-26T07:30:00+02:00","error":"HTTP 402 returned by documentation fetch service","importedEntries":0},
+    {"key":"WidgetApi","url":"https://wowwiki-archive.fandom.com/wiki/Widget_API","status":"Unavailable","checkedAt":"2026-08-26T07:30:00+02:00","error":"HTTP 402 returned by documentation fetch service","importedEntries":0}
+  ],
+  "entries": []
+}

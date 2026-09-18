@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0",
+  "sources": [
+    {"key":"InterfaceCustomizationPortal","url":"https://wowwiki-archive.fandom.com/wiki/Portal:Interface_customization","purpose":"Interface documentation roadmap"},
+    {"key":"GlobalApi","url":"https://wowwiki-archive.fandom.com/wiki/World_of_Warcraft_API","purpose":"Historical global API index"},
+    {"key":"WidgetApi","url":"https://wowwiki-archive.fandom.com/wiki/Widget_API","purpose":"Historical widget API index"}
+  ]
+}

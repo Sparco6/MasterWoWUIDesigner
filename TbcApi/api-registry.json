@@ -1,0 +1,12 @@
+{
+  "target": "TBC 2.4.3 build 8606",
+  "apis": {
+    "CreateFrame": { "object": "Global", "tbc": "supported", "designer": "implemented", "test": "covered" },
+    "SetPoint": { "object": "Region", "tbc": "supported", "designer": "partial", "test": "covered", "notes": "five-argument anchors rendered; literal X/Y patching" },
+    "SetSize": { "object": "Region", "tbc": "supported", "designer": "implemented", "test": "covered" },
+    "SetBackdrop": { "object": "Frame", "tbc": "supported", "designer": "partial", "test": "not covered", "notes": "metadata captured; nine-slice rendering pending" },
+    "CreateTexture": { "object": "Frame", "tbc": "supported", "designer": "partial", "test": "not covered" },
+    "CreateFontString": { "object": "Frame", "tbc": "supported", "designer": "partial", "test": "not covered" },
+    "SetScript": { "object": "Frame", "tbc": "supported", "designer": "partial", "test": "not covered", "notes": "registration tracked; event invocation pending" }
+  }
+}

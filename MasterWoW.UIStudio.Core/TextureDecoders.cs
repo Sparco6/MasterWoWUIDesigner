@@ -1,0 +1,55 @@
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+
+namespace MasterWoW.UIStudio.Core;
+
+public interface ITextureDecoder { bool CanDecode(string path); TextureMetadata ReadMetadata(Stream stream); DecodedTexture Decode(Stream stream, int mipLevel = 0); }
+public interface IBlpDecoder : ITextureDecoder { }
+
+public sealed class BlpDecoder : IBlpDecoder
+{
+    public bool CanDecode(string path) => path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase);
+    public TextureMetadata ReadMetadata(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, true); stream.Position = 0; var magic = new string(reader.ReadChars(4));
+        if (magic == "BLP2") { _ = reader.ReadUInt32(); var encoding = reader.ReadByte(); var alphaDepth = reader.ReadByte(); var alphaEncoding = reader.ReadByte(); var hasMips = reader.ReadByte(); var width = checked((int)reader.ReadUInt32()); var height = checked((int)reader.ReadUInt32()); var offsets = ReadUIntArray(reader); var sizes = ReadUIntArray(reader); var compression = encoding switch { 1 => "Paletted", 2 => alphaEncoding switch { 1 => "DXT3", 7 => "DXT5", _ => "DXT1" }, 3 => "BGRA", _ => $"Unknown({encoding})" }; return new("BLP2", width, height, compression, alphaDepth, CountMips(offsets, sizes, hasMips != 0), alphaDepth > 0, "TopLeft"); }
+        if (magic == "BLP1") { var compression = reader.ReadUInt32(); var alphaDepth = checked((int)reader.ReadUInt32()); var width = checked((int)reader.ReadUInt32()); var height = checked((int)reader.ReadUInt32()); _=reader.ReadUInt32();_=reader.ReadUInt32(); var offsets = ReadUIntArray(reader); var sizes = ReadUIntArray(reader); return new("BLP1", width, height, compression == 0 ? "JPEG" : compression == 1 ? "Paletted" : $"Unknown({compression})", alphaDepth, CountMips(offsets, sizes, true), alphaDepth > 0, "TopLeft"); }
+        throw new InvalidDataException($"Unsupported BLP magic '{magic}'.");
+    }
+    public DecodedTexture Decode(Stream stream, int mipLevel = 0)
+    {
+        using var reader = new BinaryReader(stream, System.Text.Encoding.ASCII, true); stream.Position = 0; var magic = new string(reader.ReadChars(4));
+        return magic switch { "BLP1" => DecodeBlp1(reader, stream, mipLevel), "BLP2" => DecodeBlp2(reader, stream, mipLevel), _ => throw new InvalidDataException($"Unsupported BLP magic '{magic}'.") };
+    }
+    private static DecodedTexture DecodeBlp1(BinaryReader r, Stream s, int mip)
+    {
+        var compression=r.ReadUInt32(); var alphaDepth=checked((int)r.ReadUInt32()); var width=checked((int)r.ReadUInt32()); var height=checked((int)r.ReadUInt32()); _=r.ReadUInt32();_=r.ReadUInt32(); var offsets=ReadUIntArray(r); var sizes=ReadUIntArray(r); mip=ChooseMip(offsets,sizes,mip); var mw=Math.Max(1,width>>mip); var mh=Math.Max(1,height>>mip);
+        if (compression == 0) { s.Position=156; var headerSize=checked((int)r.ReadUInt32()); var header=r.ReadBytes(headerSize); s.Position=offsets[mip]; var body=r.ReadBytes(checked((int)sizes[mip])); var jpeg=new byte[header.Length+body.Length]; Buffer.BlockCopy(header,0,jpeg,0,header.Length); Buffer.BlockCopy(body,0,jpeg,header.Length,body.Length); return DecodeImage(jpeg,"BLP1",alphaDepth,"JPEG",offsets,sizes); }
+        if (compression != 1) throw new NotSupportedException($"BLP1 compression {compression} is unsupported.");
+        s.Position=156; var palette=r.ReadBytes(1024); s.Position=offsets[mip]; var pixels=mw*mh; var indices=r.ReadBytes(pixels); var alphaBytes=r.ReadBytes(checked((int)sizes[mip])-pixels); var rgba=new byte[pixels*4];
+        for(var i=0;i<pixels;i++){var pi=indices[i]*4;rgba[i*4]=palette[pi+2];rgba[i*4+1]=palette[pi+1];rgba[i*4+2]=palette[pi];rgba[i*4+3]=ReadAlpha(alphaBytes,i,alphaDepth);}
+        return new(mw,mh,rgba,new("BLP1",width,height,"Paletted",alphaDepth,CountMips(offsets,sizes,true),alphaDepth>0,"TopLeft"));
+    }
+    private static DecodedTexture DecodeBlp2(BinaryReader r, Stream s, int mip)
+    {
+        _=r.ReadUInt32(); var encoding=r.ReadByte(); var alphaDepth=r.ReadByte(); var alphaEncoding=r.ReadByte(); var hasMips=r.ReadByte(); var width=checked((int)r.ReadUInt32()); var height=checked((int)r.ReadUInt32()); var offsets=ReadUIntArray(r); var sizes=ReadUIntArray(r); mip=ChooseMip(offsets,sizes,mip); var mw=Math.Max(1,width>>mip); var mh=Math.Max(1,height>>mip); s.Position=148; var palette=r.ReadBytes(1024); s.Position=offsets[mip]; var data=r.ReadBytes(checked((int)sizes[mip])); byte[] rgba; string compression;
+        if(encoding==1){rgba=DecodePalette(data,palette,mw,mh,alphaDepth);compression="Paletted";} else if(encoding==2){compression=alphaEncoding==1?"DXT3":alphaEncoding==7?"DXT5":"DXT1";rgba=DecodeDxt(data,mw,mh,compression);} else if(encoding==3){rgba=new byte[mw*mh*4];for(var i=0;i<mw*mh;i++){rgba[i*4]=data[i*4+2];rgba[i*4+1]=data[i*4+1];rgba[i*4+2]=data[i*4];rgba[i*4+3]=data[i*4+3];}compression="BGRA";}else throw new NotSupportedException($"BLP2 encoding {encoding} is unsupported.");
+        return new(mw,mh,rgba,new("BLP2",width,height,compression,alphaDepth,CountMips(offsets,sizes,hasMips!=0),alphaDepth>0,"TopLeft"));
+    }
+    private static byte[] DecodePalette(byte[] data,byte[] palette,int w,int h,int alphaDepth){var count=w*h;var rgba=new byte[count*4];var alpha=data.AsSpan(Math.Min(count,data.Length));for(var i=0;i<count;i++){var p=data[i]*4;rgba[i*4]=palette[p+2];rgba[i*4+1]=palette[p+1];rgba[i*4+2]=palette[p];rgba[i*4+3]=ReadAlpha(alpha,i,alphaDepth);}return rgba;}
+    private static byte ReadAlpha(ReadOnlySpan<byte> data,int index,int depth)=>depth switch{0=>255,1=>index/8<data.Length&&((data[index/8]>>(index%8))&1)!=0?(byte)255:(byte)0,4=>index/2<data.Length?(byte)(((data[index/2]>>((index%2)*4))&15)*17):(byte)255,8=>index<data.Length?data[index]:(byte)255,_=>255};
+    private static byte[] DecodeDxt(byte[] data,int w,int h,string mode){var output=new byte[w*h*4];var blockSize=mode=="DXT1"?8:16;var o=0;for(var by=0;by<h;by+=4)for(var bx=0;bx<w;bx+=4){if(o+blockSize>data.Length)throw new InvalidDataException("Truncated DXT mip.");var alpha=new byte[16];Array.Fill(alpha,(byte)255);var colorOffset=o;if(mode=="DXT3"){for(var i=0;i<16;i++){var nib=(data[o+i/2]>>((i%2)*4))&15;alpha[i]=(byte)(nib*17);}colorOffset+=8;}else if(mode=="DXT5"){DecodeDxt5Alpha(data.AsSpan(o,8),alpha);colorOffset+=8;}DecodeColorBlock(data.AsSpan(colorOffset,8),output,w,h,bx,by,alpha,mode=="DXT1");o+=blockSize;}return output;}
+    private static void DecodeDxt5Alpha(ReadOnlySpan<byte>b,Span<byte>a){Span<byte> table=stackalloc byte[8];table[0]=b[0];table[1]=b[1];if(b[0]>b[1])for(var i=2;i<8;i++)table[i]=(byte)(((8-i)*b[0]+(i-1)*b[1])/7);else{for(var i=2;i<6;i++)table[i]=(byte)(((6-i)*b[0]+(i-1)*b[1])/5);table[6]=0;table[7]=255;}ulong bits=0;for(var i=0;i<6;i++)bits|=(ulong)b[2+i]<<(8*i);for(var i=0;i<16;i++)a[i]=table[(int)((bits>>(3*i))&7)];}
+    private static void DecodeColorBlock(ReadOnlySpan<byte>b,byte[]dst,int w,int h,int bx,int by,ReadOnlySpan<byte>alpha,bool allowTransparent){var c0=(ushort)(b[0]|b[1]<<8);var c1=(ushort)(b[2]|b[3]<<8);Span<byte> colors=stackalloc byte[16];Rgb565(c0,colors,0);Rgb565(c1,colors,4);colors[3]=colors[7]=255;if(c0>c1||!allowTransparent){for(var k=0;k<3;k++){colors[8+k]=(byte)((2*colors[k]+colors[4+k])/3);colors[12+k]=(byte)((colors[k]+2*colors[4+k])/3);}colors[11]=colors[15]=255;}else{for(var k=0;k<3;k++)colors[8+k]=(byte)((colors[k]+colors[4+k])/2);colors[11]=255;colors[12]=colors[13]=colors[14]=colors[15]=0;}var bits=BitConverter.ToUInt32(b.Slice(4,4));for(var y=0;y<4;y++)for(var x=0;x<4;x++){var px=bx+x;var py=by+y;if(px>=w||py>=h)continue;var i=y*4+x;var ci=(int)((bits>>(2*i))&3)*4;var di=(py*w+px)*4;dst[di]=colors[ci];dst[di+1]=colors[ci+1];dst[di+2]=colors[ci+2];dst[di+3]=(byte)(alpha[i]*colors[ci+3]/255);}}
+    private static void Rgb565(ushort c,Span<byte>d,int o){d[o]=(byte)(((c>>11)&31)*255/31);d[o+1]=(byte)(((c>>5)&63)*255/63);d[o+2]=(byte)((c&31)*255/31);}
+    private static DecodedTexture DecodeImage(byte[] bytes,string format,int alphaDepth,string compression,uint[] offsets,uint[] sizes){using var image=Image.Load<Rgba32>(bytes);var pixels=new Rgba32[image.Width*image.Height];image.CopyPixelDataTo(pixels);var rgba=new byte[pixels.Length*4];for(var i=0;i<pixels.Length;i++){rgba[i*4]=pixels[i].R;rgba[i*4+1]=pixels[i].G;rgba[i*4+2]=pixels[i].B;rgba[i*4+3]=pixels[i].A;}return new(image.Width,image.Height,rgba,new(format,image.Width,image.Height,compression,alphaDepth,CountMips(offsets,sizes,true),alphaDepth>0,"TopLeft"));}
+    private static uint[] ReadUIntArray(BinaryReader r){var values=new uint[16];for(var i=0;i<16;i++)values[i]=r.ReadUInt32();return values;} private static int CountMips(uint[]o,uint[]s,bool has){if(!has)return 1;var n=0;for(var i=0;i<16&&o[i]>0&&s[i]>0;i++)n++;return Math.Max(1,n);} private static int ChooseMip(uint[]o,uint[]s,int requested){if(requested>=0&&requested<16&&o[requested]>0&&s[requested]>0)return requested;for(var i=0;i<16;i++)if(o[i]>0&&s[i]>0)return i;throw new InvalidDataException("BLP contains no mip data.");}
+}
+
+public sealed class TgaDecoder : ITextureDecoder
+{
+    public bool CanDecode(string path)=>path.EndsWith(".tga",StringComparison.OrdinalIgnoreCase);
+    public TextureMetadata ReadMetadata(Stream s){using var r=new BinaryReader(s,System.Text.Encoding.ASCII,true);s.Position=0;var id=r.ReadByte();var map=r.ReadByte();var type=r.ReadByte();s.Position=12;var w=r.ReadUInt16();var h=r.ReadUInt16();var depth=r.ReadByte();var desc=r.ReadByte();return new("TGA",w,h,type is 10 or 11?"RLE":"Uncompressed",depth==32?8:0,1,depth==32,(desc&0x20)!=0?"TopLeft":"BottomLeft");}
+    public DecodedTexture Decode(Stream s,int mipLevel=0){using var r=new BinaryReader(s,System.Text.Encoding.ASCII,true);s.Position=0;var id=r.ReadByte();var colorMap=r.ReadByte();var type=r.ReadByte();r.ReadBytes(9);var w=r.ReadUInt16();var h=r.ReadUInt16();var depth=r.ReadByte();var desc=r.ReadByte();if(colorMap!=0||type is not(2 or 10)||depth is not(24 or 32))throw new NotSupportedException($"TGA type {type}, map {colorMap}, depth {depth} is unsupported.");r.ReadBytes(id);var bpp=depth/8;var raw=new byte[w*h*bpp];if(type==2)ReadExact(r,raw);else{var p=0;while(p<raw.Length){var header=r.ReadByte();var count=(header&127)+1;if((header&128)!=0){var pixel=r.ReadBytes(bpp);for(var i=0;i<count;i++){Buffer.BlockCopy(pixel,0,raw,p,bpp);p+=bpp;}}else{var bytes=r.ReadBytes(count*bpp);Buffer.BlockCopy(bytes,0,raw,p,bytes.Length);p+=bytes.Length;}}}var rgba=new byte[w*h*4];var top=(desc&0x20)!=0;var right=(desc&0x10)!=0;for(var y=0;y<h;y++)for(var x=0;x<w;x++){var sx=right?w-1-x:x;var sy=top?y:h-1-y;var si=(sy*w+sx)*bpp;var di=(y*w+x)*4;rgba[di]=raw[si+2];rgba[di+1]=raw[si+1];rgba[di+2]=raw[si];rgba[di+3]=bpp==4?raw[si+3]:(byte)255;}return new(w,h,rgba,new("TGA",w,h,type==10?"RLE":"Uncompressed",depth==32?8:0,1,depth==32,top?"TopLeft":"BottomLeft"));}
+    private static void ReadExact(BinaryReader r,byte[] buffer){var read=r.Read(buffer,0,buffer.Length);if(read!=buffer.Length)throw new EndOfStreamException("Truncated TGA pixel data.");}
+}

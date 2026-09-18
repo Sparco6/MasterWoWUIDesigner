@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.vs/
+.dotnet/
+*.user
+*.suo
+*.mwstudio.bak
+*.mwstudio.layout.json
+
